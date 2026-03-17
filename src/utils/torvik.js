@@ -1,62 +1,74 @@
 const TORVIK_URL = 'https://barttorvik.com/2026_team_results.json';
 
+// Sources tried in order — first success wins
 function getSources() {
   return [
-    '/api/torvik',
-    `https://corsproxy.io/?${encodeURIComponent(TORVIK_URL)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(TORVIK_URL)}`,
-    TORVIK_URL,
+    { url: '/api/torvik', type: 'proxy' },
+    { url: `https://corsproxy.io/?${encodeURIComponent(TORVIK_URL)}`, type: 'cors' },
+    { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(TORVIK_URL)}`, type: 'cors' },
+    { url: `https://thingproxy.freeboard.io/fetch/${TORVIK_URL}`, type: 'cors' },
   ];
 }
 
-// Torvik row format — positional array:
-// [team, conf, g, rec, adjoe, adjde, barthag, efg%, efgd%, tor, tord, orb, drb, ftrd, ftr, 2p%, 2pd%, 3pd%, 3p%, adj_t, wab, ...]
 const COL = {
-  team: 0,
-  conf: 1,
-  g: 2,
-  rec: 3,
-  adjO: 4,
-  adjD: 5,
-  barthag: 6,
-  adjT: 19,
-  wab: 20,
+  team: 0, conf: 1, g: 2, rec: 3,
+  adjO: 4, adjD: 5, barthag: 6,
+  adjT: 19, wab: 20,
 };
 
 export async function fetchTorvik() {
   const sources = getSources();
-  let lastError = null;
+  const errors = [];
 
-  for (const url of sources) {
+  for (const source of sources) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!res.ok) continue;
+      const res = await fetch(source.url, {
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        errors.push(`${source.url}: HTTP ${res.status}`);
+        continue;
+      }
+
       const raw = await res.json();
 
-      // Unwrap proxy wrappers
+      // If our own proxy returned an error object, skip it
+      if (raw && raw.error && !Array.isArray(raw)) {
+        errors.push(`${source.url}: ${raw.error}`);
+        continue;
+      }
+
+      // Unwrap allorigins {contents: '...'} wrapper
       let data = raw;
-      if (raw && raw.contents) {
+      if (raw && typeof raw.contents === 'string') {
         data = JSON.parse(raw.contents);
       }
 
-      if (!Array.isArray(data)) continue;
+      if (!Array.isArray(data)) {
+        errors.push(`${source.url}: not an array`);
+        continue;
+      }
 
-      // Filter to valid rows only — must be an array with a string at [0]
       const teams = data
         .filter(row => Array.isArray(row) && typeof row[0] === 'string' && row[0].length > 0)
         .map(row => normalizeTeam(row))
         .filter(Boolean);
 
-      if (teams.length > 50) return teams;
+      if (teams.length > 50) {
+        console.log(`Torvik loaded from ${source.url}: ${teams.length} teams`);
+        return teams;
+      }
+
+      errors.push(`${source.url}: only ${teams.length} teams parsed`);
     } catch (e) {
-      lastError = e;
+      errors.push(`${source.url}: ${e.message}`);
       continue;
     }
   }
 
   throw new Error(
-    'Unable to load Torvik data. Try refreshing. ' +
-    `Last error: ${lastError?.message || 'unknown'}`
+    `Unable to load Torvik data from any source.\n${errors.join('\n')}`
   );
 }
 
@@ -67,7 +79,7 @@ function normalizeTeam(row) {
 
     const adjO = parseFloat(row[COL.adjO]) || 100;
     const adjD = parseFloat(row[COL.adjD]) || 100;
-    const barthag = parseFloat(row[COL.barthag]) || 0.5;
+    const barthag = Math.min(Math.max(parseFloat(row[COL.barthag]) || 0.5, 0.01), 0.99);
     const adjT = parseFloat(row[COL.adjT]) || 68;
 
     return {
@@ -75,11 +87,9 @@ function normalizeTeam(row) {
       conf: String(row[COL.conf] || '').trim(),
       games: parseInt(row[COL.g]) || 0,
       record: String(row[COL.rec] || '').trim(),
-      adjO,
-      adjD,
+      adjO, adjD,
       netRating: adjO - adjD,
-      barthag,
-      adjT,
+      barthag, adjT,
       wab: parseFloat(row[COL.wab]) || 0,
       injuries: [],
       seed: null,
@@ -91,9 +101,8 @@ function normalizeTeam(row) {
 }
 
 export function derivePPPG(team) {
-  const possPerGame = team.adjT;
-  const pppg = (team.adjO / 100) * possPerGame;
-  const ppag = (team.adjD / 100) * possPerGame;
+  const pppg = (team.adjO / 100) * team.adjT;
+  const ppag = (team.adjD / 100) * team.adjT;
   return { pppg: Math.round(pppg * 10) / 10, ppag: Math.round(ppag * 10) / 10 };
 }
 
