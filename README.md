@@ -206,3 +206,4 @@ If CORS blocks the direct fetch, the app falls back to allorigins.win proxy auto
 - Travel penalty not applied (NCAA tournament is neutral sites throughout)
 - Home court advantage not applied (neutral sites)
 - Women's tournament not supported
+
