@@ -1,8 +1,3 @@
-// Fetches live T-Rank data from barttorvik.com
-// Primary: our own Vercel serverless proxy (/api/torvik) — no CORS issues
-// Fallbacks: corsproxy.io, allorigins, then direct
-// Normalizes to COOPER-compatible schema
-
 const TORVIK_URL = 'https://barttorvik.com/2026_team_results.json';
 
 function getSources() {
@@ -14,8 +9,8 @@ function getSources() {
   ];
 }
 
-// Column indices in Torvik's JSON array format:
-// [team, conf, g, rec, adjoe, adjde, barthag, efg, efgd, tor, tord, orb, drb, ftrd, ftr, twopcd, twopctd, threepctd, threepct, adj_t, wab, elite_sos]
+// Torvik row format — positional array:
+// [team, conf, g, rec, adjoe, adjde, barthag, efg%, efgd%, tor, tord, orb, drb, ftrd, ftr, 2p%, 2pd%, 3pd%, 3p%, adj_t, wab, ...]
 const COL = {
   team: 0,
   conf: 1,
@@ -34,19 +29,25 @@ export async function fetchTorvik() {
 
   for (const url of sources) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) continue;
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 100) {
-        return data.map(row => normalizeTeam(row)).filter(Boolean);
+      const raw = await res.json();
+
+      // Unwrap proxy wrappers
+      let data = raw;
+      if (raw && raw.contents) {
+        data = JSON.parse(raw.contents);
       }
-      // Handle {contents: '...'} wrapper from some proxies
-      if (data.contents) {
-        const inner = JSON.parse(data.contents);
-        if (Array.isArray(inner) && inner.length > 100) {
-          return inner.map(row => normalizeTeam(row)).filter(Boolean);
-        }
-      }
+
+      if (!Array.isArray(data)) continue;
+
+      // Filter to valid rows only — must be an array with a string at [0]
+      const teams = data
+        .filter(row => Array.isArray(row) && typeof row[0] === 'string' && row[0].length > 0)
+        .map(row => normalizeTeam(row))
+        .filter(Boolean);
+
+      if (teams.length > 50) return teams;
     } catch (e) {
       lastError = e;
       continue;
@@ -60,28 +61,33 @@ export async function fetchTorvik() {
 }
 
 function normalizeTeam(row) {
-  if (!row || !row[COL.team]) return null;
+  try {
+    const team = String(row[COL.team] || '').trim();
+    if (!team) return null;
 
-  const adjO = parseFloat(row[COL.adjO]) || 100;
-  const adjD = parseFloat(row[COL.adjD]) || 100;
-  const barthag = parseFloat(row[COL.barthag]) || 0.5;
-  const adjT = parseFloat(row[COL.adjT]) || 68;
+    const adjO = parseFloat(row[COL.adjO]) || 100;
+    const adjD = parseFloat(row[COL.adjD]) || 100;
+    const barthag = parseFloat(row[COL.barthag]) || 0.5;
+    const adjT = parseFloat(row[COL.adjT]) || 68;
 
-  return {
-    team: row[COL.team],
-    conf: row[COL.conf] || '',
-    games: parseInt(row[COL.g]) || 0,
-    record: row[COL.rec] || '',
-    adjO,
-    adjD,
-    netRating: adjO - adjD,
-    barthag,
-    adjT,
-    wab: parseFloat(row[COL.wab]) || 0,
-    injuries: [],
-    seed: null,
-    region: null,
-  };
+    return {
+      team,
+      conf: String(row[COL.conf] || '').trim(),
+      games: parseInt(row[COL.g]) || 0,
+      record: String(row[COL.rec] || '').trim(),
+      adjO,
+      adjD,
+      netRating: adjO - adjD,
+      barthag,
+      adjT,
+      wab: parseFloat(row[COL.wab]) || 0,
+      injuries: [],
+      seed: null,
+      region: null,
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 export function derivePPPG(team) {
@@ -93,7 +99,6 @@ export function derivePPPG(team) {
 
 export const REGIONS = ['South', 'East', 'West', 'Midwest'];
 export const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-
 export const SEED_MATCHUPS = [
   [1, 16], [8, 9], [5, 12], [4, 13],
   [6, 11], [3, 14], [7, 10], [2, 15]
