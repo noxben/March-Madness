@@ -1,81 +1,81 @@
 import React, { useState, useCallback } from 'react';
-import { fetchTorvik, REGIONS } from '../utils/torvik';
+import { fetchTorvik } from '../utils/torvik';
 
-// 2026 NCAA Tournament bracket — official Selection Sunday March 15, 2026
-// First Four play-in winners shown with the higher seed they compete for
-// Sources: Yahoo Sports, CBS Sports, ESPN, On3
+// 2026 NCAA Tournament bracket — verified against CBS Sports March 18 2026
+// First Four: Miami OH beat Missouri (Midwest 11), Texas beat SMU (West 11)
+//             Prairie View beat Lehigh (Midwest 16), Howard beat LIU (South 16)
 const DEFAULT_BRACKET = [
-  // ── EAST (Washington D.C.) ── #1 overall seed Duke
+  // ── EAST ── #1 Duke
   { team: 'Duke',             seed: 1,  region: 'East' },
-  { team: 'Ohio St.',         seed: 8,  region: 'East' },
-  { team: 'TCU',              seed: 9,  region: 'East' },
-  { team: 'St. John\'s',      seed: 5,  region: 'East' },
-  { team: 'Northern Iowa',    seed: 12, region: 'East' },
+  { team: 'Furman',           seed: 16, region: 'East' },
+  { team: 'Villanova',        seed: 8,  region: 'East' },
+  { team: 'Iowa',             seed: 9,  region: 'East' },
+  { team: 'Wisconsin',        seed: 5,  region: 'East' },
+  { team: 'Akron',            seed: 12, region: 'East' },
   { team: 'Kansas',           seed: 4,  region: 'East' },
-  { team: 'Cal Baptist',      seed: 13, region: 'East' },
-  { team: 'Louisville',       seed: 6,  region: 'East' },
-  { team: 'South Florida',    seed: 11, region: 'East' }, // won play-in
+  { team: 'Hofstra',          seed: 13, region: 'East' },
+  { team: 'Tennessee',        seed: 6,  region: 'East' },
+  { team: 'VCU',              seed: 11, region: 'East' },
   { team: 'Michigan St.',     seed: 3,  region: 'East' },
-  { team: 'North Dakota St.', seed: 14, region: 'East' },
-  { team: 'UCLA',             seed: 7,  region: 'East' },
+  { team: 'Penn',             seed: 14, region: 'East' },
+  { team: 'Kentucky',         seed: 7,  region: 'East' },
   { team: 'UCF',              seed: 10, region: 'East' },
   { team: 'UConn',            seed: 2,  region: 'East' },
-  { team: 'Furman',           seed: 15, region: 'East' },
-  { team: 'Siena',            seed: 16, region: 'East' },
+  { team: 'Kennesaw St.',     seed: 15, region: 'East' },
 
-  // ── SOUTH (Houston) ── #1 seed Florida
-  { team: 'Florida',          seed: 1,  region: 'South' },
-  { team: 'Clemson',          seed: 8,  region: 'South' },
-  { team: 'Iowa',             seed: 9,  region: 'South' },
-  { team: 'Vanderbilt',       seed: 5,  region: 'South' },
-  { team: 'McNeese',          seed: 12, region: 'South' },
-  { team: 'Nebraska',         seed: 4,  region: 'South' },
-  { team: 'Troy',             seed: 13, region: 'South' },
-  { team: 'North Carolina',   seed: 6,  region: 'South' },
-  { team: 'VCU',              seed: 11, region: 'South' },
-  { team: 'Illinois',         seed: 3,  region: 'South' },
-  { team: 'Penn',             seed: 14, region: 'South' },
-  { team: 'Saint Mary\'s',    seed: 7,  region: 'South' },
-  { team: 'Texas A&M',        seed: 10, region: 'South' },
-  { team: 'Houston',          seed: 2,  region: 'South' },
-  { team: 'Idaho',            seed: 15, region: 'South' },
-  { team: 'Prairie View A&M', seed: 16, region: 'South' }, // won play-in vs Lehigh
-
-  // ── WEST (San Jose) ── #1 seed Arizona
-  { team: 'Arizona',          seed: 1,  region: 'West' },
-  { team: 'Villanova',        seed: 8,  region: 'West' },
-  { team: 'Utah St.',         seed: 9,  region: 'West' },
-  { team: 'Wisconsin',        seed: 5,  region: 'West' },
-  { team: 'High Point',       seed: 12, region: 'West' },
-  { team: 'Arkansas',         seed: 4,  region: 'West' },
-  { team: 'Hawai\'i',         seed: 13, region: 'West' },
-  { team: 'BYU',              seed: 6,  region: 'West' },
-  { team: 'Texas',            seed: 11, region: 'West' }, // won play-in vs NC State
-  { team: 'Gonzaga',          seed: 3,  region: 'West' },
-  { team: 'Kennesaw St.',     seed: 14, region: 'West' },
-  { team: 'Miami FL',         seed: 7,  region: 'West' },
-  { team: 'Missouri',         seed: 10, region: 'West' },
-  { team: 'Purdue',           seed: 2,  region: 'West' },
-  { team: 'Queens',           seed: 15, region: 'West' },
-  { team: 'LIU',              seed: 16, region: 'West' },
-
-  // ── MIDWEST (Chicago) ── #1 seed Michigan
+  // ── MIDWEST ── #1 Michigan
   { team: 'Michigan',         seed: 1,  region: 'Midwest' },
+  { team: 'Prairie View A&M', seed: 16, region: 'Midwest' }, // beat Lehigh
   { team: 'Georgia',          seed: 8,  region: 'Midwest' },
-  { team: 'Saint Louis',      seed: 9,  region: 'Midwest' },
-  { team: 'Texas Tech',       seed: 5,  region: 'Midwest' },
-  { team: 'Akron',            seed: 12, region: 'Midwest' },
-  { team: 'Alabama',          seed: 4,  region: 'Midwest' },
-  { team: 'Hofstra',          seed: 13, region: 'Midwest' },
-  { team: 'Tennessee',        seed: 6,  region: 'Midwest' },
-  { team: 'Miami OH',         seed: 11, region: 'Midwest' }, // won play-in vs SMU
-  { team: 'Virginia',         seed: 3,  region: 'Midwest' },
+  { team: 'NC State',         seed: 9,  region: 'Midwest' },
+  { team: "St. John's",       seed: 5,  region: 'Midwest' },
+  { team: 'Northern Iowa',    seed: 12, region: 'Midwest' },
+  { team: 'Nebraska',         seed: 4,  region: 'Midwest' },
+  { team: 'North Dakota St.', seed: 13, region: 'Midwest' },
+  { team: 'Louisville',       seed: 6,  region: 'Midwest' },
+  { team: 'Miami OH',         seed: 11, region: 'Midwest' }, // beat Missouri
+  { team: 'Vanderbilt',       seed: 3,  region: 'Midwest' },
   { team: 'Wright St.',       seed: 14, region: 'Midwest' },
-  { team: 'Kentucky',         seed: 7,  region: 'Midwest' },
-  { team: 'Santa Clara',      seed: 10, region: 'Midwest' },
+  { team: "Saint Mary's",     seed: 7,  region: 'Midwest' },
+  { team: 'Saint Louis',      seed: 10, region: 'Midwest' },
   { team: 'Iowa St.',         seed: 2,  region: 'Midwest' },
   { team: 'Tennessee St.',    seed: 15, region: 'Midwest' },
-  { team: 'UMBC',             seed: 16, region: 'Midwest' }, // won play-in vs Howard
+
+  // ── SOUTH ── #1 Florida
+  { team: 'Florida',          seed: 1,  region: 'South' },
+  { team: 'Howard',           seed: 16, region: 'South' }, // beat LIU
+  { team: 'UCLA',             seed: 8,  region: 'South' },
+  { team: 'TCU',              seed: 9,  region: 'South' },
+  { team: 'Texas Tech',       seed: 5,  region: 'South' },
+  { team: 'McNeese',          seed: 12, region: 'South' },
+  { team: 'Gonzaga',          seed: 4,  region: 'South' },
+  { team: "Hawai'i",          seed: 13, region: 'South' },
+  { team: 'North Carolina',   seed: 6,  region: 'South' },
+  { team: 'South Florida',    seed: 11, region: 'South' },
+  { team: 'Illinois',         seed: 3,  region: 'South' },
+  { team: 'Troy',             seed: 14, region: 'South' },
+  { team: 'Miami FL',         seed: 7,  region: 'South' },
+  { team: 'Texas A&M',        seed: 10, region: 'South' },
+  { team: 'Houston',          seed: 2,  region: 'South' },
+  { team: 'Siena',            seed: 15, region: 'South' },
+
+  // ── WEST ── #1 Arizona
+  { team: 'Arizona',          seed: 1,  region: 'West' },
+  { team: 'UMBC',             seed: 16, region: 'West' },
+  { team: 'Ohio St.',         seed: 8,  region: 'West' },
+  { team: 'Clemson',          seed: 9,  region: 'West' },
+  { team: 'Arkansas',         seed: 5,  region: 'West' },
+  { team: 'High Point',       seed: 12, region: 'West' },
+  { team: 'Alabama',          seed: 4,  region: 'West' },
+  { team: 'Cal Baptist',      seed: 13, region: 'West' },
+  { team: 'BYU',              seed: 6,  region: 'West' },
+  { team: 'Texas',            seed: 11, region: 'West' }, // beat SMU
+  { team: 'Virginia',         seed: 3,  region: 'West' },
+  { team: 'Idaho',            seed: 14, region: 'West' },
+  { team: 'Utah St.',         seed: 7,  region: 'West' },
+  { team: 'Santa Clara',      seed: 10, region: 'West' },
+  { team: 'Purdue',           seed: 2,  region: 'West' },
+  { team: 'Queens',           seed: 15, region: 'West' },
 ];
 
 export default function DataSetup({ onReady, existingTeams }) {
@@ -137,26 +137,38 @@ export default function DataSetup({ onReady, existingTeams }) {
 
     // Handle common Torvik vs bracket name divergences
     const aliases = {
-      'miami fl':        ['miami fla', 'miami florida'],
-      'miami oh':        ['miami ohio', 'miami  oh'],
+      'miami fl':        ['miami fla', 'miami florida', 'miami fl'],
+      'miami oh':        ['miami ohio', 'miami  oh', 'miami oh'],
       'st johns':        ["st john's", 'saint johns', "st. john's"],
-      'saint marys':     ["saint mary's", "st. mary's"],
+      'saint marys':     ["saint mary's", "st. mary's", "saint mary s"],
       'uconn':           ['connecticut'],
       'vcu':             ['vcu rams'],
       'byu':             ['brigham young'],
-      'unc':             ['north carolina'],
-      'nc state':        ['north carolina state', 'nc st'],
+      'north carolina':  ['unc', 'n carolina'],
+      'nc state':        ['north carolina state', 'nc st', 'n c state', 'n c  state'],
       'lsu':             ['louisiana state'],
       'ole miss':        ['mississippi'],
       'pitt':            ['pittsburgh'],
       'umbc':            ['umbc retrievers'],
-      'north dakota st': ['north dakota state', 'ndsu'],
-      'prairie view':    ['prairie view a m', 'prairie view am'],
-      'hawaii':          ["hawai'i", 'hawai i'],
+      'north dakota st': ['north dakota state', 'ndsu', 'n dakota st', 'n  dakota st'],
+      'prairie view':    ['prairie view a m', 'prairie view am', 'prairie view a&m'],
+      'hawaii':          ["hawai'i", 'hawai i', 'hawaii'],
       'kennesaw':        ['kennesaw st', 'kennesaw state'],
       'high point':      ['high point panthers'],
-      'queens':          ['queens nc'],
-      'liu':             ['long island'],
+      'queens':          ['queens nc', 'queens university'],
+      'liu':             ['long island', 'liu brooklyn'],
+      'howard':          ['howard university', 'howard bison'],
+      'saint louis':     ['saint louis university', 'slu'],
+      'northern iowa':   ['n iowa', 'uni panthers'],
+      'wright st':       ['wright state', 'wright st '],
+      'tennessee st':    ['tennessee state', 'tenn state', 'tenn st'],
+      'iowa st':         ['iowa state', 'isu cyclones'],
+      'ohio st':         ['ohio state', 'osu buckeyes'],
+      'michigan st':     ['michigan state', 'msu spartans'],
+      'kennesaw st':     ['kennesaw state'],
+      'utah st':         ['utah state'],
+      'texas tech':      ['texas tech red raiders'],
+      'texas a m':       ['texas a&m', 'texas am', 'tamu'],
     };
 
     // Check both directions
