@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { runMonteCarlo, compositeElo } from '../utils/simulator';
 import BracketDiagram from './BracketDiagram';
+import InjuryRefresh from './InjuryRefresh';
+import InjuryRefresh from './InjuryRefresh';
 
 const ROUND_LABELS = ['R64', 'R32', 'S16', 'E8', 'F4', 'Final', 'Champ'];
 const ROUND_COLORS = ['#4e6280', '#4f9eff', '#7c3aed', '#dc2626', '#d97706', '#f59e0b', '#16a34a'];
@@ -118,10 +120,67 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
       }
     }
 
+    // Historical seed upset rates (NCAA tournament since 1985)
+    // Used to apply a small correction to the model's raw win probability
+    // Format: [lowerSeed, higherSeed] -> historical upset rate for lower seed
+    const SEED_CORRECTIONS = {
+      '1v16': 0.01,  // 1-seeds win ~99% — model usually correct
+      '2v15': 0.06,
+      '3v14': 0.15,
+      '4v13': 0.21,
+      '5v12': 0.35,  // famous 12-over-5 rate; model often understimates
+      '6v11': 0.37,
+      '7v10': 0.40,
+      '8v9':  0.49,  // nearly a coin flip historically
+      '1v8':  0.07,
+      '1v9':  0.08,
+      '2v7':  0.28,
+      '2v10': 0.30,
+      '1v4':  0.20,
+      '1v5':  0.25,
+    };
+
+    function getSeedCorrection(seedA, seedB) {
+      // Returns a small additive correction to teamA's win probability
+      // blends model probability 80% with historical rate 20%
+      const lo = Math.min(seedA, seedB);
+      const hi = Math.max(seedA, seedB);
+      const key = lo + 'v' + hi;
+      if (!SEED_CORRECTIONS[key]) return 0;
+      const histRate = seedA < seedB
+        ? (1 - SEED_CORRECTIONS[key])   // favored team historical win rate
+        : SEED_CORRECTIONS[key];         // upset rate
+      return histRate; // used as blend target below
+    }
+
+    // Historical seed correction — R64/R32 only
+    // 12-over-5 upsets ~35% historically vs ~28% pure model; correct for known biases
+    const SEED_CORR = {
+      '1_16': -30, '2_15': -12, '3_14': -10, '4_13': -8,
+      '5_12':  22, '6_11':  18, '7_10':  10, '8_9':    0,
+    };
+    function seedCorr(a, b, round) {
+      if (round > 2 || !a.seed || !b.seed) return [0, 0];
+      const hi = Math.min(a.seed, b.seed);
+      const lo = Math.max(a.seed, b.seed);
+      const c = SEED_CORR[hi + '_' + lo] || 0;
+      // positive c favors lower seed
+      return b.seed === lo ? [0, c] : [0, -c];
+    }
+
     function simGame(a, b, round) {
-      const eloA = compositeElo(a) - injPenalty(a) * 28.5;
-      const eloB = compositeElo(b) - injPenalty(b) * 28.5;
-      const pace = ((a.adjT || 68) + (b.adjT || 68)) / 2 / 68.5;
+      const injA = injPenalty(a);
+      const injB = injPenalty(b);
+      const [corrA, corrB] = seedCorr(a, b, round);
+      const eloA = compositeElo(a) - injA * 28.5 + corrA;
+      const eloB = compositeElo(b) - injB * 28.5 + corrB;
+
+      // 60/40 pace weighting toward slower team — slowdown teams impose their pace
+      const slowT = Math.min(a.adjT || 68, b.adjT || 68);
+      const fastT = Math.max(a.adjT || 68, b.adjT || 68);
+      const blendedT = slowT * 0.6 + fastT * 0.4;
+      const pace = blendedT / 68.5;
+
       const netA = (a.adjO - a.adjD) * pace;
       const netB = (b.adjO - b.adjD) * pace;
       const projMargin = (netA - netB) / 2;
@@ -129,7 +188,23 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
       const sd = (10 + (eloDiff / 400) * 3) * Math.sqrt(pace);
       const noise = tRand() * sd;
       const rawMargin = projMargin + noise;
-      return rawMargin > 0 ? { ...a } : { ...b };
+
+      // Raw model win probability for team A
+      const rawWinProbA = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+
+      // Seed correction: blend model 80% with historical upset rates 20%
+      const seedA = a.seed || 8;
+      const seedB = b.seed || 8;
+      const histTarget = getSeedCorrection(seedA, seedB);
+      // Only apply correction in R64 and R32 where seeding is most predictive
+      const correctionWeight = round <= 2 ? 0.20 : round === 3 ? 0.10 : 0;
+      const adjustedProbA = histTarget > 0
+        ? rawWinProbA * (1 - correctionWeight) + histTarget * correctionWeight
+        : rawWinProbA;
+
+      // Use adjusted probability to determine winner
+      const teamAWins = Math.random() < adjustedProbA;
+      return teamAWins ? { ...a } : { ...b };
     }
 
     function injPenalty(team) {
@@ -214,6 +289,7 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
 
   return (
     <div className="bracket-view">
+      <InjuryRefresh teams={teams} onUpdate={onUpdateTeams} />
       <div className="sim-controls">
         <div className="sim-left">
           <h2>Bracket Simulator</h2>
@@ -233,6 +309,7 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
               <option value={25000}>25,000 (slow)</option>
             </select>
           </div>
+          <InjuryRefresh teams={teams} onUpdateTeams={onUpdateTeams} />
           <button
             className={`btn-primary ${running ? 'loading' : ''}`}
             onClick={runSim}
