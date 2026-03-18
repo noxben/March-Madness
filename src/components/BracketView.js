@@ -287,7 +287,6 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
 
   return (
     <div className="bracket-view">
-      <InjuryRefresh teams={teams} onUpdate={onUpdateTeams} />
       <div className="sim-controls">
         <div className="sim-left">
           <h2>Bracket Simulator</h2>
@@ -307,7 +306,6 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
               <option value={25000}>25,000 (slow)</option>
             </select>
           </div>
-          <InjuryRefresh teams={teams} onUpdateTeams={onUpdateTeams} />
           <button
             className={`btn-primary ${running ? 'loading' : ''}`}
             onClick={runSim}
