@@ -6,19 +6,19 @@ import { fetchTorvik, REGIONS } from '../utils/torvik';
 const DEFAULT_BRACKET = [
   // ── EAST ── #1 Duke
   { team: 'Duke',             seed:  1, region: 'East' },
-  { team: 'UConn',            seed:  2, region: 'East' },
-  { team: 'Michigan St.',     seed:  3, region: 'East' },
+  { team: 'Connecticut',            seed:  2, region: 'East' },
+  { team: 'Michigan St',     seed:  3, region: 'East' },
   { team: 'Kansas',           seed:  4, region: 'East' },
   { team: "St. John's",       seed:  5, region: 'East' },
   { team: 'Louisville',       seed:  6, region: 'East' },
   { team: 'UCLA',             seed:  7, region: 'East' },
-  { team: 'Ohio St.',         seed:  8, region: 'East' },
+  { team: 'Ohio St',         seed:  8, region: 'East' },
   { team: 'TCU',              seed:  9, region: 'East' },
   { team: 'UCF',              seed: 10, region: 'East' },
   { team: 'South Florida',    seed: 11, region: 'East' },
   { team: 'Northern Iowa',    seed: 12, region: 'East' },
   { team: 'Cal Baptist',      seed: 13, region: 'East' },
-  { team: 'North Dakota St.', seed: 14, region: 'East' },
+  { team: 'North Dakota St', seed: 14, region: 'East' },
   { team: 'Furman',           seed: 15, region: 'East' },
   { team: 'Siena',            seed: 16, region: 'East' },
 
@@ -31,12 +31,12 @@ const DEFAULT_BRACKET = [
   { team: 'BYU',              seed:  6, region: 'West' },
   { team: 'Miami FL',         seed:  7, region: 'West' },
   { team: 'Villanova',        seed:  8, region: 'West' },
-  { team: 'Utah St.',         seed:  9, region: 'West' },
+  { team: 'Utah St',         seed:  9, region: 'West' },
   { team: 'Missouri',         seed: 10, region: 'West' },
   { team: 'Texas',            seed: 11, region: 'West' },
   { team: 'High Point',       seed: 12, region: 'West' },
-  { team: "Hawai'i",          seed: 13, region: 'West' },
-  { team: 'Kennesaw St.',     seed: 14, region: 'West' },
+  { team: 'Hawaii',          seed: 13, region: 'West' },
+  { team: 'Kennesaw St',     seed: 14, region: 'West' },
   { team: 'Queens',           seed: 15, region: 'West' },
   { team: 'UMBC',             seed: 16, region: 'West' },
 
@@ -52,7 +52,7 @@ const DEFAULT_BRACKET = [
   { team: 'Iowa',             seed:  9, region: 'South' },
   { team: 'Texas A&M',        seed: 10, region: 'South' },
   { team: 'VCU',              seed: 11, region: 'South' },
-  { team: 'McNeese',          seed: 12, region: 'South' },
+  { team: 'McNeese St',          seed: 12, region: 'South' },
   { team: 'Troy',             seed: 13, region: 'South' },
   { team: 'Penn',             seed: 14, region: 'South' },
   { team: 'Idaho',            seed: 15, region: 'South' },
@@ -60,7 +60,7 @@ const DEFAULT_BRACKET = [
 
   // ── MIDWEST ── #1 Michigan
   { team: 'Michigan',         seed:  1, region: 'Midwest' },
-  { team: 'Iowa St.',         seed:  2, region: 'Midwest' },
+  { team: 'Iowa St',         seed:  2, region: 'Midwest' },
   { team: 'Virginia',         seed:  3, region: 'Midwest' },
   { team: 'Alabama',          seed:  4, region: 'Midwest' },
   { team: 'Texas Tech',       seed:  5, region: 'Midwest' },
@@ -72,8 +72,8 @@ const DEFAULT_BRACKET = [
   { team: 'Miami OH',         seed: 11, region: 'Midwest' },
   { team: 'Akron',            seed: 12, region: 'Midwest' },
   { team: 'Hofstra',          seed: 13, region: 'Midwest' },
-  { team: 'Wright St.',       seed: 14, region: 'Midwest' },
-  { team: 'Tennessee St.',    seed: 15, region: 'Midwest' },
+  { team: 'Wright St',       seed: 14, region: 'Midwest' },
+  { team: 'Tennessee St',    seed: 15, region: 'Midwest' },
   { team: 'Prairie View A&M', seed: 16, region: 'Midwest' },
 ];
 
