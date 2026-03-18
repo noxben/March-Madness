@@ -180,9 +180,22 @@ export default function DataSetup({ onReady, existingTeams }) {
       }
     }
 
-    // Substring match (at least 5 chars to avoid false positives)
-    if (a.length >= 5 && b.includes(a)) return true;
-    if (b.length >= 5 && a.includes(b)) return true;
+    // Substring match — but NEVER allow if the difference is a meaningful disambiguator
+    // e.g. 'Tennessee' must NOT match 'Tennessee St' or 'Tennessee Tech'
+    // These suffixes make them completely different teams
+    const DISAMBIGUATORS = [' st', ' state', ' tech', ' martin', ' a&m', ' am',
+                             ' oh', ' fl', ' eastern', ' western', ' northern', ' southern',
+                             ' christian', ' central', ' fort'];
+    const substringOk = (shorter, longer) => {
+      if (!longer.includes(shorter)) return false;
+      const remainder = longer.replace(shorter, '').trim();
+      // If the remainder is a disambiguator suffix, it's a DIFFERENT team
+      if (DISAMBIGUATORS.some(d => remainder === d.trim() || remainder.startsWith(d.trim()))) return false;
+      return true;
+    };
+
+    if (a.length >= 5 && substringOk(a, b)) return true;
+    if (b.length >= 5 && substringOk(b, a)) return true;
 
     return false;
   }
