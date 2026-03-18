@@ -1,82 +1,82 @@
 import React, { useState, useCallback } from 'react';
 import { fetchTorvik, REGIONS } from '../utils/torvik';
 
-// 2026 NCAA Tournament bracket -- verified from official bracket CSV March 2026
-// Source: Copy_of_NCAA_Basketball_Tournament_Single_Bracket_TEMPLATE
-// Play-in results: Howard beat TBD (South 16), Prairie View A&M in Midwest 16,
-//                  Miami OH in Midwest 11, Texas beat NC State (West 11)
+// 2026 NCAA Tournament bracket - verified from user-provided official data
+// Teams listed in BRACKET_ORDER: [1,16,8,9,5,12,4,13,6,11,3,14,7,10,2,15]
+// Each consecutive pair is a matchup (1v16, 8v9, 5v12, etc.)
+// TBD slots: South #16 (Lehigh/Prairie View play-in), Midwest #11 (SMU/Miami OH play-in)
 const DEFAULT_BRACKET = [
-  // -- EAST -- #1 Duke
+  // -- EAST -- Duke 1 seed
   { team: 'Duke',             seed:  1, region: 'East' },
-  { team: 'Connecticut',      seed:  2, region: 'East' },
-  { team: 'Michigan St',      seed:  3, region: 'East' },
-  { team: 'Kansas',           seed:  4, region: 'East' },
-  { team: "St. John's",       seed:  5, region: 'East' },
-  { team: 'Louisville',       seed:  6, region: 'East' },
-  { team: 'UCLA',             seed:  7, region: 'East' },
+  { team: 'Siena',            seed: 16, region: 'East' },
   { team: 'Ohio St',          seed:  8, region: 'East' },
   { team: 'TCU',              seed:  9, region: 'East' },
-  { team: 'UCF',              seed: 10, region: 'East' },
-  { team: 'South Florida',    seed: 11, region: 'East' },
+  { team: "St. John's",       seed:  5, region: 'East' },
   { team: 'Northern Iowa',    seed: 12, region: 'East' },
+  { team: 'Kansas',           seed:  4, region: 'East' },
   { team: 'Cal Baptist',      seed: 13, region: 'East' },
+  { team: 'Louisville',       seed:  6, region: 'East' },
+  { team: 'South Florida',    seed: 11, region: 'East' },
+  { team: 'Michigan St',      seed:  3, region: 'East' },
   { team: 'North Dakota St',  seed: 14, region: 'East' },
+  { team: 'UCLA',             seed:  7, region: 'East' },
+  { team: 'UCF',              seed: 10, region: 'East' },
+  { team: 'Connecticut',      seed:  2, region: 'East' },
   { team: 'Furman',           seed: 15, region: 'East' },
-  { team: 'Siena',            seed: 16, region: 'East' },
 
-  // -- WEST -- #1 Arizona
+  // -- WEST -- Arizona 1 seed
   { team: 'Arizona',          seed:  1, region: 'West' },
-  { team: 'Purdue',           seed:  2, region: 'West' },
-  { team: 'Gonzaga',          seed:  3, region: 'West' },
-  { team: 'Arkansas',         seed:  4, region: 'West' },
-  { team: 'Wisconsin',        seed:  5, region: 'West' },
-  { team: 'BYU',              seed:  6, region: 'West' },
-  { team: 'Miami FL',         seed:  7, region: 'West' },
+  { team: 'LIU',              seed: 16, region: 'West' },
   { team: 'Villanova',        seed:  8, region: 'West' },
   { team: 'Utah St',          seed:  9, region: 'West' },
-  { team: 'Missouri',         seed: 10, region: 'West' },
-  { team: 'Texas',            seed: 11, region: 'West' },
+  { team: 'Wisconsin',        seed:  5, region: 'West' },
   { team: 'High Point',       seed: 12, region: 'West' },
+  { team: 'Arkansas',         seed:  4, region: 'West' },
   { team: 'Hawaii',           seed: 13, region: 'West' },
+  { team: 'BYU',              seed:  6, region: 'West' },
+  { team: 'Texas',            seed: 11, region: 'West' },
+  { team: 'Gonzaga',          seed:  3, region: 'West' },
   { team: 'Kennesaw St',      seed: 14, region: 'West' },
+  { team: 'Miami FL',         seed:  7, region: 'West' },
+  { team: 'Missouri',         seed: 10, region: 'West' },
+  { team: 'Purdue',           seed:  2, region: 'West' },
   { team: 'Queens',           seed: 15, region: 'West' },
-  { team: 'LIU',              seed: 16, region: 'West' },
 
-  // -- SOUTH -- #1 Florida
+  // -- SOUTH -- Florida 1 seed
   { team: 'Florida',          seed:  1, region: 'South' },
-  { team: 'Houston',          seed:  2, region: 'South' },
-  { team: 'Illinois',         seed:  3, region: 'South' },
-  { team: 'Nebraska',         seed:  4, region: 'South' },
-  { team: 'Vanderbilt',       seed:  5, region: 'South' },
-  { team: 'North Carolina',   seed:  6, region: 'South' },
-  { team: "Saint Mary's",     seed:  7, region: 'South' },
+  { team: 'Prairie View A&M', seed: 16, region: 'South' },
   { team: 'Clemson',          seed:  8, region: 'South' },
   { team: 'Iowa',             seed:  9, region: 'South' },
-  { team: 'Texas A&M',        seed: 10, region: 'South' },
-  { team: 'VCU',              seed: 11, region: 'South' },
+  { team: 'Vanderbilt',       seed:  5, region: 'South' },
   { team: 'McNeese St',       seed: 12, region: 'South' },
+  { team: 'Nebraska',         seed:  4, region: 'South' },
   { team: 'Troy',             seed: 13, region: 'South' },
+  { team: 'North Carolina',   seed:  6, region: 'South' },
+  { team: 'VCU',              seed: 11, region: 'South' },
+  { team: 'Illinois',         seed:  3, region: 'South' },
   { team: 'Penn',             seed: 14, region: 'South' },
+  { team: "Saint Mary's",     seed:  7, region: 'South' },
+  { team: 'Texas A&M',        seed: 10, region: 'South' },
+  { team: 'Houston',          seed:  2, region: 'South' },
   { team: 'Idaho',            seed: 15, region: 'South' },
-  { team: 'Howard',           seed: 16, region: 'South' },
 
-  // -- MIDWEST -- #1 Michigan
+  // -- MIDWEST -- Michigan 1 seed
   { team: 'Michigan',         seed:  1, region: 'Midwest' },
-  { team: 'Iowa St',          seed:  2, region: 'Midwest' },
-  { team: 'Virginia',         seed:  3, region: 'Midwest' },
-  { team: 'Alabama',          seed:  4, region: 'Midwest' },
-  { team: 'Texas Tech',       seed:  5, region: 'Midwest' },
-  { team: 'Tennessee',        seed:  6, region: 'Midwest' },
-  { team: 'Kentucky',         seed:  7, region: 'Midwest' },
+  { team: 'Howard',           seed: 16, region: 'Midwest' },
   { team: 'Georgia',          seed:  8, region: 'Midwest' },
   { team: 'Saint Louis',      seed:  9, region: 'Midwest' },
-  { team: 'Santa Clara',      seed: 10, region: 'Midwest' },
-  { team: 'Miami OH',         seed: 11, region: 'Midwest' },
+  { team: 'Texas Tech',       seed:  5, region: 'Midwest' },
   { team: 'Akron',            seed: 12, region: 'Midwest' },
+  { team: 'Alabama',          seed:  4, region: 'Midwest' },
   { team: 'Hofstra',          seed: 13, region: 'Midwest' },
+  { team: 'Tennessee',        seed:  6, region: 'Midwest' },
+  { team: 'Miami OH',         seed: 11, region: 'Midwest' },
+  { team: 'Virginia',         seed:  3, region: 'Midwest' },
   { team: 'Wright St',        seed: 14, region: 'Midwest' },
+  { team: 'Kentucky',         seed:  7, region: 'Midwest' },
+  { team: 'Santa Clara',      seed: 10, region: 'Midwest' },
+  { team: 'Iowa St',          seed:  2, region: 'Midwest' },
   { team: 'Tennessee St',     seed: 15, region: 'Midwest' },
-  { team: 'Prairie View A&M', seed: 16, region: 'Midwest' },
 ];
 
 export default function DataSetup({ onReady, existingTeams }) {
