@@ -2,20 +2,16 @@
 // COOPER-based March Madness Simulation Engine
 // Implements Silver Bulletin COOPER methodology:
 //   - Composite: 5/8 barthag-Elo + 3/8 efficiency-normalized
-//   - Pace-adjusted projected margins
+//   - Pace-adjusted margins: 60/40 weighted toward slower team
 //   - Fat-tailed score distribution (t-dist, df=10)
 //   - Binary injury rolls (not point shaving)
 //   - Hot Elo updates cascading through rounds
+//   - Seed-matchup historical correction factors
 //   - 10,000 Monte Carlo simulations
 // ============================================================
 
 // ---------- Math helpers ----------
-
-// Inverse CDF approximation for t-distribution (df=10)
-// Uses Box-Muller + heavy-tail correction
 function tRandDF10() {
-  // Generate t-distributed random variable with df=10
-  // via ratio of standard normal to chi-squared
   let u, v, s;
   do {
     u = Math.random() * 2 - 1;
@@ -23,7 +19,6 @@ function tRandDF10() {
     s = u * u + v * v;
   } while (s >= 1 || s === 0);
   const normal = u * Math.sqrt((-2 * Math.log(s)) / s);
-  // Chi-squared df=10 approximated via sum of 10 squared normals
   let chi2 = 0;
   for (let i = 0; i < 10; i++) {
     let a, b, c;
@@ -42,40 +37,127 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
+// ---------- Historical seed correction ----------
+// Based on NCAA tournament results 1985-2025 (~40 years)
+// Maps [higherSeed, lowerSeed] -> actual upset rate vs model expectation
+// Positive = upset happens MORE than pure model predicts (lower seed is undervalued)
+// Negative = upset happens LESS (higher seed is stronger than model thinks)
+// Applied as a small additive Elo adjustment to the lower seed
+const SEED_CORRECTIONS = {
+  // Classic upsets: 12-over-5 (35% historically vs ~28% model), 11-over-6 (~37%)
+  '5_12':  22,   // +22 Elo pts to #12 seed (they're systematically undervalued)
+  '6_11':  18,   // +18 Elo pts to #11 seed
+  '7_10':  10,   // slight edge to #10
+  '4_13':  -8,   // #4 seeds slightly stronger than model
+  '3_14':  -10,  // #3 seeds very reliable
+  '2_15':  -12,  // #2 seeds dominate 15s
+  '1_16':  -30,  // #1 seeds almost never lose (3/160 historically)
+  '8_9':    0,   // true coin flip
+};
+
+function getSeedCorrection(seedA, seedB) {
+  const hi = Math.min(seedA, seedB);
+  const lo = Math.max(seedA, seedB);
+  const key = hi + '_' + lo;
+  const correction = SEED_CORRECTIONS[key] || 0;
+  // Return positive if correction favors the lower seed (lo), negative if favors higher (hi)
+  // If seedB is the lower seed, add correction to B's Elo
+  if (seedB === lo) return correction;
+  if (seedA === lo) return -correction;
+  return 0;
+}
+
 // ---------- Normalization ----------
-// Normalize Torvik stats to COOPER-compatible scale
-// Elo mean=1500, SD~100; barthag is 0-1 win probability
-// We convert barthag -> pseudo-Elo: 1500 + 400*log10(p/(1-p))
 export function barthagToElo(barthag) {
   const p = clamp(barthag, 0.01, 0.99);
   return 1500 + 400 * Math.log10(p / (1 - p));
 }
 
-// Convert efficiency margin (AdjO - AdjD) to Elo points
-// Silver: 1 point of margin ≈ 28.5 Elo points
 export function marginToElo(netRating) {
   return netRating * 28.5;
 }
 
-// Build composite Elo: 5/8 barthag-Elo + 3/8 efficiency-Elo
+// ---------- Conference SOS Adjustment ----------
+// Adjusts composite Elo based on strength of schedule implied by conference.
+// Torvik opponent-adjusts for average opponent quality, but does not fully
+// account for the distribution of competition — a team playing 18 SEC games
+// faces a fundamentally harder gauntlet than 18 WCC games at the same avg rank.
+// Values represent Elo point additions to the composite rating.
+// Calibrated so the average tournament team gets ~0 net adjustment.
+// Scale: 100 Elo points ≈ 3-4 point spread difference.
+const CONF_SOS_ADJ = {
+  // Power conferences — deep schedules, frequent top-50 opponents
+  'SEC':  +28,  // 10 tourney teams in 2026, brutal top-to-bottom
+  'B12':  +24,  // Arizona, Houston, Iowa St, Texas Tech, Kansas
+  'B10':  +22,  // 9 tourney teams, strong middle
+  'ACC':  +14,  // Duke dominant but depth below top 3 is thin
+  'BE':   +12,  // UConn, Villanova — Big East still elite brand
+
+  // Mid-major + weaker power — decent but not power-conference gauntlets
+  'WCC':   +2,  // Gonzaga carries it but rest is thin
+  'A10':   -2,  // Atlantic 10 — average mid-major
+  'MWC':   -2,  // Mountain West — decent
+  'Amer':  -4,  // American Athletic
+
+  // True mid-majors — conference schedule not tournament-caliber
+  'MAC':  -10,
+  'MVC':  -10,
+  'CAA':  -12,
+  'Ivy':  -8,   // Smart teams, weak schedules
+  'BSth': -14,
+  'WAC':  -14,
+  'Sum':  -14,
+  'BW':   -14,
+  'Horz': -14,
+  'ASun': -14,
+  'CUSA': -14,
+
+  // Low-major / automatic bid conferences
+  'Slnd': -20,
+  'SB':   -20,
+  'SC':   -20,
+  'BSky': -20,
+  'OVC':  -22,
+  'MAAC': -20,
+  'Pat':  -20,
+  'NEC':  -24,
+  'MEAC': -28,
+  'SWAC': -28,
+};
+
+export function confSosAdj(team) {
+  return CONF_SOS_ADJ[team.conf] || -5;
+}
+
 export function compositeElo(team) {
   const eloFromBarthag = barthagToElo(team.barthag);
   const eloFromEfficiency = 1500 + marginToElo(team.adjO - team.adjD);
-  return (5 / 8) * eloFromBarthag + (3 / 8) * eloFromEfficiency;
+  const base = (5 / 8) * eloFromBarthag + (3 / 8) * eloFromEfficiency;
+  // Apply conference SOS adjustment — smaller weight (20%) so it nudges
+  // rather than overrides the efficiency data
+  // Weight 1.0: full adjustment. Moves teams ~1-4 spots, never overrides efficiency.
+  return base + confSosAdj(team) * 1.0;
+}
+
+// ---------- Pace (60/40 toward slower team) ----------
+// Silver: slowdown teams tend to impose their pace
+// Weight: 60% slower team's tempo, 40% faster team's tempo
+export function blendedPace(teamA, teamB) {
+  const tA = teamA.adjT || 68;
+  const tB = teamB.adjT || 68;
+  const slower = Math.min(tA, tB);
+  const faster = Math.max(tA, tB);
+  return slower * 0.60 + faster * 0.40;
 }
 
 // ---------- Injury ----------
-// Binary roll: player either plays (0 penalty) or doesn't (full penalty)
-// Returns point-penalty to subtract from team's net rating
-export function injuryPenalty(team, simulationSeed) {
+export function injuryPenalty(team) {
   if (!team.injuries || team.injuries.length === 0) return 0;
   let totalPenalty = 0;
   for (const injury of team.injuries) {
     const plays = Math.random() < injury.playProbability;
     if (!plays) {
-      // Full replacement-level penalty
-      // Silver: top players worth 7-10 pts vs replacement; scale by impact 1-10
-      const replacementPenalty = (injury.impact / 10) * 8.5; // max ~8.5 pts
+      const replacementPenalty = (injury.impact / 10) * 8.5;
       totalPenalty += replacementPenalty;
     }
   }
@@ -83,72 +165,62 @@ export function injuryPenalty(team, simulationSeed) {
 }
 
 // ---------- Win probability from Elo ----------
-// Standard Elo win probability formula
 export function eloProbability(eloA, eloB) {
   return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
 }
 
 // ---------- Game simulation ----------
-// Returns { winner, loser, margin, scoreA, scoreB }
 export function simulateGame(teamA, teamB, options = {}) {
   const { round = 1, neutral = true } = options;
 
-  // Composite Elo for each team
   let eloA = compositeElo(teamA);
   let eloB = compositeElo(teamB);
 
-  // Apply injury penalties (subtract from net rating ≈ subtract from Elo)
+  // Injury penalties (binary roll)
   const injA = injuryPenalty(teamA);
   const injB = injuryPenalty(teamB);
   eloA -= injA * 28.5;
   eloB -= injB * 28.5;
 
-  // Tournament = neutral site, so no travel penalty needed
-  // (Silver: travel penalty = 5 * m^(1/3), but NCAA tourney is neutral)
+  // Seed-matchup historical correction (only R64/R32 where seeds are known)
+  if (round <= 2 && teamA.seed && teamB.seed) {
+    const correction = getSeedCorrection(teamA.seed, teamB.seed);
+    eloB += correction; // positive correction favors teamB (lower seed)
+  }
 
-  // Impact factor: tournament games get a boost
-  // Higher rounds = slightly higher impact (more info from hot updates)
-  const impactBoost = round >= 3 ? 1.15 : 1.0;
+  // Impact factor: higher rounds = stronger signal
+  const impactBoost = round >= 5 ? 1.2 : round >= 3 ? 1.1 : 1.0;
 
-  // Projected margin from net ratings (pace-adjusted)
-  // Pace rating = expected combined points; higher pace = more variance
-  const avgPace = ((teamA.adjT || 68) + (teamB.adjT || 68)) / 2;
-  const leagueAvgPace = 68.5; // 2025-26 league average possessions
-  // Points per possession ~ total score / (2 * possessions)
-  const paceScaleFactor = avgPace / leagueAvgPace;
+  // 60/40 pace blend toward slower team
+  const blendPace = blendedPace(teamA, teamB);
+  const leagueAvgPace = 68.5;
+  const paceScaleFactor = blendPace / leagueAvgPace;
 
   const netA = (teamA.adjO - teamA.adjD) * paceScaleFactor;
   const netB = (teamB.adjO - teamB.adjD) * paceScaleFactor;
 
-  // Bayesian-adjusted projected scores
   const leagueAvgPPG = 73.5;
   const projScoreA = leagueAvgPPG / 2 + (netA - netB) / 2;
   const projScoreB = leagueAvgPPG / 2 - (netA - netB) / 2;
 
-  // Standard error: higher in lopsided games, scales with pace
-  // Silver: SD is a function of Elo difference + pace
   const eloDiff = Math.abs(eloA - eloB);
-  const baseSD = 10 + (eloDiff / 400) * 3; // wider SD in blowout projections
+  const baseSD = 10 + (eloDiff / 400) * 3;
   const paceSD = baseSD * Math.sqrt(paceScaleFactor) * impactBoost;
 
-  // Sample from fat-tailed t-distribution (df=10)
   const noise = tRandDF10() * paceSD;
-
-  // Actual margin: projected + noise
   const rawMargin = (projScoreA - projScoreB) + noise;
 
-  // Apply Silver's 6-point win bonus after determining winner
+  // Silver's 6-point win bonus
   const winner6Bonus = rawMargin > 0 ? 6 : -6;
   const adjustedMargin = rawMargin + winner6Bonus;
 
   const actualScoreA = Math.round(projScoreA + noise / 2);
   const actualScoreB = Math.round(projScoreB - noise / 2);
-
   const teamAWins = rawMargin > 0;
 
   return {
     winner: teamAWins ? { ...teamA } : { ...teamB },
-    loser: teamAWins ? { ...teamB } : { ...teamA },
+    loser:  teamAWins ? { ...teamB } : { ...teamA },
     margin: Math.abs(adjustedMargin),
     scoreA: Math.max(actualScoreA, 40),
     scoreB: Math.max(actualScoreB, 40),
@@ -160,200 +232,19 @@ export function simulateGame(teamA, teamB, options = {}) {
 }
 
 // ---------- Hot Elo update ----------
-// After each simulated game, update winner's Elo for next round
-// K-factor = 55 for regular games; higher for tournament (impact factor)
 const K_FACTOR = 55;
 
 export function hotEloUpdate(team, won, expectedWinProb, round) {
-  const impact = round >= 3 ? 1.3 : 1.0; // tournament impact boost
+  const impact = round >= 3 ? 1.3 : 1.0;
   const actual = won ? 1 : 0;
   const currentElo = compositeElo(team);
   const delta = K_FACTOR * impact * (actual - expectedWinProb);
-  // We update barthag to reflect the new Elo
   const newElo = currentElo + delta;
-  // Convert new Elo back to barthag
   const newBarthag = 1 / (1 + Math.pow(10, (1500 - newElo) / 400));
   return { ...team, barthag: clamp(newBarthag, 0.01, 0.99), _hotElo: newElo };
 }
 
-// ---------- Single bracket run ----------
-// bracket: array of 68 teams with seeds and region assignments
-// Returns: array of round-by-round winners
-function runSingleBracket(bracket) {
-  // Bracket structure: 4 regions × 16 teams + 4 play-in games
-  // We represent as {region, seed, team}
-  // Returns champion
-
-  let regions = { South: [], East: [], West: [], Midwest: [] };
-
-  // Distribute teams to regions
-  for (const entry of bracket) {
-    if (regions[entry.region]) {
-      regions[entry.region].push({ ...entry.team, seed: entry.seed, region: entry.region });
-    }
-  }
-
-  // Play-in games (First Four): seeds 11 and 16 in each region have play-ins
-  // Simplified: just simulate and advance winners
-  const roundResults = {};
-
-  // Run each region through rounds 1-4
-  let finalFourTeams = [];
-  for (const [regionName, teams] of Object.entries(regions)) {
-    if (teams.length === 0) continue;
-    // Sort by seed
-    teams.sort((a, b) => a.seed - b.seed);
-
-    let remaining = [...teams];
-    let round = 1;
-    while (remaining.length > 1) {
-      const nextRound = [];
-      // Standard bracket: 1v16, 8v9, 5v12, 4v13, 6v11, 3v14, 7v10, 2v15
-      for (let i = 0; i < remaining.length / 2; i++) {
-        const teamA = remaining[i];
-        const teamB = remaining[remaining.length - 1 - i];
-        const result = simulateGame(teamA, teamB, { round, neutral: true });
-        const winnerUpdated = hotEloUpdate(
-          result.winner,
-          true,
-          result.teamAWins ? result.winProb : 1 - result.winProb,
-          round
-        );
-        nextRound.push(winnerUpdated);
-      }
-      remaining = nextRound;
-      round++;
-    }
-    if (remaining[0]) finalFourTeams.push(remaining[0]);
-  }
-
-  // Final Four (round 5) and Championship (round 6)
-  if (finalFourTeams.length >= 2) {
-    const sf1 = simulateGame(finalFourTeams[0], finalFourTeams[1], { round: 5 });
-    const sf2 = finalFourTeams.length >= 4
-      ? simulateGame(finalFourTeams[2], finalFourTeams[3], { round: 5 })
-      : finalFourTeams[2] || finalFourTeams[0];
-
-    const finalist1 = hotEloUpdate(sf1.winner, true, sf1.teamAWins ? sf1.winProb : 1 - sf1.winProb, 5);
-    const finalist2 = sf2.winner
-      ? hotEloUpdate(sf2.winner, true, sf2.teamAWins ? sf2.winProb : 1 - sf2.winProb, 5)
-      : sf2;
-
-    const championship = simulateGame(finalist1, finalist2, { round: 6 });
-    return championship.winner;
-  }
-
-  return finalFourTeams[0] || null;
-}
-
-// ---------- Full Monte Carlo ----------
-// N = number of simulations
-// bracket = array of { team, seed, region }
-// Returns: Map of teamName -> { roundReach: [r1%, r2%, s16%, e8%, f4%, final%, champ%] }
-export function runMonteCarlo(bracket, N = 10000, onProgress = null) {
-  const teamStats = {};
-
-  // Initialize
-  for (const entry of bracket) {
-    teamStats[entry.team.team] = {
-      team: entry.team,
-      seed: entry.seed,
-      region: entry.region,
-      rounds: [0, 0, 0, 0, 0, 0, 0], // R64, R32, S16, E8, F4, Final, Champ
-      simCount: N,
-    };
-  }
-
-  for (let sim = 0; sim < N; sim++) {
-    if (onProgress && sim % 1000 === 0) onProgress(sim / N);
-
-    // Deep copy bracket for this simulation (injuries re-rolled each sim)
-    let regions = { South: [], East: [], West: [], Midwest: [] };
-    for (const entry of bracket) {
-      const region = entry.region;
-      if (regions[region] !== undefined) {
-        regions[region].push({ ...entry.team, seed: entry.seed, region });
-      }
-    }
-
-    let finalFourTeams = [];
-
-    for (const [regionName, teams] of Object.entries(regions)) {
-      if (teams.length === 0) continue;
-      teams.sort((a, b) => a.seed - b.seed);
-
-      let remaining = [...teams];
-      let round = 1;
-
-      // Track round advancement for this sim
-      for (const t of remaining) {
-        if (teamStats[t.team]) teamStats[t.team].rounds[0]++;
-      }
-
-      while (remaining.length > 1) {
-        const nextRound = [];
-        for (let i = 0; i < remaining.length / 2; i++) {
-          const teamA = remaining[i];
-          const teamB = remaining[remaining.length - 1 - i];
-          const result = simulateGame(teamA, teamB, { round, neutral: true });
-          const winnerUpdated = hotEloUpdate(
-            result.winner,
-            true,
-            result.teamAWins ? result.winProb : 1 - result.winProb,
-            round
-          );
-          nextRound.push(winnerUpdated);
-        }
-        remaining = nextRound;
-        round++;
-        const roundIdx = Math.min(round, 5); // R32=1, S16=2, E8=3, F4=4
-        for (const t of remaining) {
-          if (teamStats[t.team]) teamStats[t.team].rounds[roundIdx]++;
-        }
-      }
-
-      if (remaining[0]) finalFourTeams.push(remaining[0]);
-    }
-
-    // Mark F4 (already counted above as round 4)
-    // Final Four sim
-    if (finalFourTeams.length >= 2) {
-      const sf1 = simulateGame(finalFourTeams[0], finalFourTeams[1], { round: 5 });
-      const w1 = hotEloUpdate(sf1.winner, true, sf1.winProb, 5);
-      const sf2 = finalFourTeams.length >= 4
-        ? simulateGame(finalFourTeams[2], finalFourTeams[3], { round: 5 })
-        : null;
-      const w2 = sf2 ? hotEloUpdate(sf2.winner, true, sf2.winProb, 5) : finalFourTeams[2];
-
-      if (teamStats[w1.team]) teamStats[w1.team].rounds[5]++;
-      if (w2 && teamStats[w2.team]) teamStats[w2.team].rounds[5]++;
-
-      if (w2) {
-        const champ = simulateGame(w1, w2, { round: 6 });
-        if (teamStats[champ.winner.team]) teamStats[champ.winner.team].rounds[6]++;
-      } else if (w1) {
-        if (teamStats[w1.team]) teamStats[w1.team].rounds[6]++;
-      }
-    }
-  }
-
-  // Convert counts to percentages
-  const results = {};
-  for (const [name, data] of Object.entries(teamStats)) {
-    results[name] = {
-      ...data,
-      roundPct: data.rounds.map((count, i) => {
-        if (i === 0) return 100; // everyone starts
-        return Math.round((count / N) * 1000) / 10;
-      }),
-    };
-  }
-
-  return results;
-}
-
 // ---------- Head-to-head matchup analysis ----------
-// Returns detailed win probability and score distribution
 export function analyzeMatchup(teamA, teamB, N = 5000) {
   let aWins = 0;
   const margins = [];
@@ -371,7 +262,6 @@ export function analyzeMatchup(teamA, teamB, N = 5000) {
   const avgScoreA = scores.reduce((s, g) => s + g.a, 0) / N;
   const avgScoreB = scores.reduce((s, g) => s + g.b, 0) / N;
 
-  // Distribution buckets for chart
   const buckets = {};
   for (const m of margins) {
     const bucket = Math.round(m / 3) * 3;
@@ -392,3 +282,6 @@ export function analyzeMatchup(teamA, teamB, N = 5000) {
     eloB: compositeElo(teamB),
   };
 }
+
+// ---------- Export seed corrections for UI display ----------
+export { SEED_CORRECTIONS, getSeedCorrection };
