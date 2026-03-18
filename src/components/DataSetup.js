@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { fetchTorvik } from '../utils/torvik';
+import { fetchTorvik, REGIONS } from '../utils/torvik';
 
 // 2026 NCAA Tournament bracket — verified against CBS Sports March 18 2026
 // First Four: Miami OH beat Missouri (Midwest 11), Texas beat SMU (West 11)
