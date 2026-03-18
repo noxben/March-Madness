@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { fetchTorvik } from '../utils/torvik';
+import { fetchTorvik, REGIONS } from '../utils/torvik';
 
 // 2026 NCAA Tournament bracket — verified against user CSV + CBS Sports March 18 2026
 // First Four results: South Florida in East, Texas in West, Miami OH in Midwest, Howard in South
