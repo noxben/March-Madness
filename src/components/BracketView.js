@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { runMonteCarlo, compositeElo } from '../utils/simulator';
+import BracketDiagram from './BracketDiagram';
 
 const ROUND_LABELS = ['R64', 'R32', 'S16', 'E8', 'F4', 'Final', 'Champ'];
-const ROUND_COLORS = ['#334155', '#475569', '#1e40af', '#7c3aed', '#dc2626', '#d97706', '#16a34a'];
+const ROUND_COLORS = ['#4e6280', '#4f9eff', '#7c3aed', '#dc2626', '#d97706', '#f59e0b', '#16a34a'];
 
 export default function BracketView({ teams, simResults, onSimComplete, onUpdateTeams }) {
   const [running, setRunning] = useState(false);
@@ -215,6 +216,20 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
 
       {simResults && (
         <>
+          <div className="bracket-view-tabs">
+            <button className={`bracket-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
+              📊 Probability Table
+            </button>
+            <button className={`bracket-tab ${viewMode === 'bracket' ? 'active' : ''}`} onClick={() => setViewMode('bracket')}>
+              🏀 Bracket View
+            </button>
+          </div>
+
+          {viewMode === 'bracket' && (
+            <BracketDiagram teams={teams} simResults={simResults} />
+          )}
+
+          {viewMode === 'table' && <>
           <div className="results-controls">
             <div className="filter-group">
               {regions.map(r => (
@@ -291,6 +306,8 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
               </tbody>
             </table>
           </div>
+
+          </>}
 
           <UpsetWatch simResults={simResults} teams={teams} />
         </>
