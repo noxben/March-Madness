@@ -22,7 +22,7 @@ export default function App() {
         <div className="header-inner">
           <div className="logo">
             <span className="logo-bracket">&#123;</span>
-            <span className="logo-text">COOPER<span className="logo-accent">cast</span></span>
+            <span className="logo-text">BEN<span className="logo-accent">cast</span></span>
             <span className="logo-bracket">&#125;</span>
           </div>
           <p className="logo-sub">Silver Bulletin COOPER methodology · 10,000 simulations</p>
