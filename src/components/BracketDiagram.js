@@ -118,11 +118,13 @@ function RegionBlock({ region, slots, getPct, fmtPct, getMatchupOdds, showMatchu
     r64Pairs.push([slots[i], slots[15 - i]]);
   }
 
+  // Exact counts per round — 8 teams reach R32, 4 reach S16, 2 reach E8, 1 reaches F4
+  // topN is exact, not approximate — shows exactly the right number of teams
   const rounds = [
     { label: 'R32', idx: 1, topN: 8 },
-    { label: 'S16', idx: 2, topN: 6 },
-    { label: 'E8',  idx: 3, topN: 4 },
-    { label: 'F4',  idx: 4, topN: 3 },
+    { label: 'S16', idx: 2, topN: 4 },
+    { label: 'E8',  idx: 3, topN: 2 },
+    { label: 'F4',  idx: 4, topN: 1 },
   ];
 
   return (
@@ -252,7 +254,8 @@ function MatchupPair({ topSlot, botSlot, color, getPct, fmtPct, odds }) {
 }
 
 function TeamRow({ slot, roundIdx, getPct, fmtPct, color }) {
-  const p = getPct(slot.teamName, roundIdx);
+  const raw = getPct(slot.teamName, roundIdx);
+  const p = raw !== null ? Math.min(raw, 100) : null;
   const pColor = p === null ? 'var(--text-dim)'
     : p >= 40 ? 'var(--green)'
     : p >= 20 ? 'var(--accent)'

@@ -60,61 +60,65 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
       return pairs;
     }
 
-    // Inline simulation to avoid Worker complexity
+    // Simulate one full bracket
+    // Rounds: 0=R64(all start), 1=R32, 2=S16, 3=E8, 4=F4, 5=Final, 6=Champ
+    // Each index counts how many times a team REACHED that round across all sims
     function simOnce() {
-      let f4 = [];
+      const f4 = []; // one winner per region
 
       for (const [, arr] of Object.entries(regions)) {
         if (arr.length === 0) continue;
 
-        // Sort into correct NCAA bracket slot order for this region
+        // Build teams in correct NCAA bracket slot order
         const slotMap = {};
         for (const t of arr) slotMap[t.seed] = t;
-        // Build ordered array by bracket position
-        let remaining = BRACKET_ORDER
-          .map(seed => slotMap[seed])
-          .filter(Boolean)
-          .map(t => ({ ...t }));
+        let r64 = BRACKET_ORDER.map(seed => slotMap[seed]).filter(Boolean).map(t => ({ ...t }));
 
-        let round = 1; // R64
-        while (remaining.length > 1) {
-          const next = [];
-          // Pair: slot i vs slot (n-1-i) — preserves bracket quadrant integrity
-          for (let i = 0; i < Math.floor(remaining.length / 2); i++) {
-            const a = remaining[i];
-            const b = remaining[remaining.length - 1 - i];
-            next.push(simGame(a, b, round));
-          }
-          remaining = next;
-          round++;
-          // round 2 = R32 (idx 1), round 3 = S16 (idx 2), round 4 = E8 (idx 3), round 5 = F4 (idx 4)
-          const roundIdx = Math.min(round - 1, 4);
-          for (const t of remaining) {
-            if (teamStats[t.team]) teamStats[t.team].rounds[roundIdx]++;
-          }
+        // --- R64 (round 1): 16 -> 8 ---
+        // Winners reach R32 (index 1)
+        const r32 = [];
+        for (let i = 0; i < 8; i++) {
+          const winner = simGame(r64[i], r64[15 - i], 1);
+          r32.push(winner);
+          if (teamStats[winner.team]) teamStats[winner.team].rounds[1]++;
         }
-        if (remaining[0]) f4.push(remaining[0]);
+
+        // --- R32 (round 2): 8 -> 4 ---
+        // Winners reach S16 (index 2)
+        const s16 = [];
+        for (let i = 0; i < 4; i++) {
+          const winner = simGame(r32[i], r32[7 - i], 2);
+          s16.push(winner);
+          if (teamStats[winner.team]) teamStats[winner.team].rounds[2]++;
+        }
+
+        // --- S16 (round 3): 4 -> 2 ---
+        // Winners reach E8 (index 3)
+        const e8 = [];
+        for (let i = 0; i < 2; i++) {
+          const winner = simGame(s16[i], s16[3 - i], 3);
+          e8.push(winner);
+          if (teamStats[winner.team]) teamStats[winner.team].rounds[3]++;
+        }
+
+        // --- E8 (round 4): 2 -> 1 regional champion ---
+        // Winner reaches F4 (index 4)
+        const regionalChamp = simGame(e8[0], e8[1], 4);
+        if (teamStats[regionalChamp.team]) teamStats[regionalChamp.team].rounds[4]++;
+        f4.push(regionalChamp);
       }
 
-      // Final Four: [East winner, West winner] and [South winner, Midwest winner]
-      // Standard bracket: East vs West, South vs Midwest in F4
+      // --- Final Four (round 5): East vs West, South vs Midwest ---
+      // f4 order: East[0], South[1], West[2], Midwest[3]
       if (f4.length === 4) {
-        const eastWest = simGame(f4[0], f4[2], 5);   // East(0) vs West(2)
-        const southMid = simGame(f4[1], f4[3], 5);   // South(1) vs Midwest(3)
-        if (teamStats[eastWest.team]) teamStats[eastWest.team].rounds[5]++;
-        if (teamStats[southMid.team]) teamStats[southMid.team].rounds[5]++;
-        const champ = simGame(eastWest, southMid, 6);
+        const finalist1 = simGame(f4[0], f4[2], 5); // East vs West
+        const finalist2 = simGame(f4[1], f4[3], 5); // South vs Midwest
+        if (teamStats[finalist1.team]) teamStats[finalist1.team].rounds[5]++;
+        if (teamStats[finalist2.team]) teamStats[finalist2.team].rounds[5]++;
+
+        // --- Championship (round 6) ---
+        const champ = simGame(finalist1, finalist2, 6);
         if (teamStats[champ.team]) teamStats[champ.team].rounds[6]++;
-      } else if (f4.length >= 2) {
-        // Fallback if some regions have no teams
-        const w1 = simGame(f4[0], f4[1], 5);
-        if (teamStats[w1.team]) teamStats[w1.team].rounds[5]++;
-        if (f4.length >= 4) {
-          const w2 = simGame(f4[2], f4[3], 5);
-          if (teamStats[w2.team]) teamStats[w2.team].rounds[5]++;
-          const champ = simGame(w1, w2, 6);
-          if (teamStats[champ.team]) teamStats[champ.team].rounds[6]++;
-        }
       }
     }
 
