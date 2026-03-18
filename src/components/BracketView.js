@@ -75,28 +75,34 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
         let r64 = BRACKET_ORDER.map(seed => slotMap[seed]).filter(Boolean).map(t => ({ ...t }));
 
         // --- R64 (round 1): 16 -> 8 ---
+        // BRACKET_ORDER = [1,16, 8,9, 5,12, 4,13, 6,11, 3,14, 7,10, 2,15]
+        // Consecutive pairs: [0]v[1]=1v16, [2]v[3]=8v9, [4]v[5]=5v12, etc.
         // Winners reach R32 (index 1)
         const r32 = [];
-        for (let i = 0; i < 8; i++) {
-          const winner = simGame(r64[i], r64[15 - i], 1);
+        for (let i = 0; i < 16; i += 2) {
+          const winner = simGame(r64[i], r64[i + 1], 1);
           r32.push(winner);
           if (teamStats[winner.team]) teamStats[winner.team].rounds[1]++;
         }
+        // r32 now has 8 winners in bracket order: [1/16w, 8/9w, 5/12w, 4/13w, 6/11w, 3/14w, 7/10w, 2/15w]
 
         // --- R32 (round 2): 8 -> 4 ---
+        // Consecutive pairs again: [0]v[1], [2]v[3], [4]v[5], [6]v[7]
         // Winners reach S16 (index 2)
         const s16 = [];
-        for (let i = 0; i < 4; i++) {
-          const winner = simGame(r32[i], r32[7 - i], 2);
+        for (let i = 0; i < 8; i += 2) {
+          const winner = simGame(r32[i], r32[i + 1], 2);
           s16.push(winner);
           if (teamStats[winner.team]) teamStats[winner.team].rounds[2]++;
         }
+        // s16 has 4 winners: [top-left-q, top-right-q, bottom-left-q, bottom-right-q]
 
         // --- S16 (round 3): 4 -> 2 ---
+        // Consecutive pairs: [0]v[1], [2]v[3]
         // Winners reach E8 (index 3)
         const e8 = [];
-        for (let i = 0; i < 2; i++) {
-          const winner = simGame(s16[i], s16[3 - i], 3);
+        for (let i = 0; i < 4; i += 2) {
+          const winner = simGame(s16[i], s16[i + 1], 3);
           e8.push(winner);
           if (teamStats[winner.team]) teamStats[winner.team].rounds[3]++;
         }

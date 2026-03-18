@@ -111,11 +111,11 @@ function RegionBlock({ region, slots, getPct, fmtPct, getMatchupOdds, showMatchu
   const seed1Name = slots.find(s => s.seed === 1)?.teamName || '?';
 
   // Build R64 matchup pairs in bracket order
-  // slots are already in SEED_ORDER: [1,16,8,9,5,12,4,13,6,11,3,14,7,10,2,15]
-  // pairs: slot[0] vs slot[15], slot[1] vs slot[14], etc.
+  // slots are in SEED_ORDER: [1,16, 8,9, 5,12, 4,13, 6,11, 3,14, 7,10, 2,15]
+  // CONSECUTIVE pairs: [0]v[1]=1v16, [2]v[3]=8v9, [4]v[5]=5v12, etc.
   const r64Pairs = [];
-  for (let i = 0; i < 8; i++) {
-    r64Pairs.push([slots[i], slots[15 - i]]);
+  for (let i = 0; i < 16; i += 2) {
+    r64Pairs.push([slots[i], slots[i + 1]]);
   }
 
   // Exact counts per round — 8 teams reach R32, 4 reach S16, 2 reach E8, 1 reaches F4
