@@ -121,12 +121,16 @@ export default function DataSetup({ onReady, existingTeams }) {
       seed: slot.seed,
       region: slot.region,
       teamName: slot.team,
-      team: torvikTeams.find(t => fuzzyMatch(t.team, slot.team)) || null,
+      // ALWAYS try exact match first — only fall back to fuzzy if no exact match exists
+      team: torvikTeams.find(t => t.team === slot.team)
+         || torvikTeams.find(t => fuzzyMatch(t.team, slot.team))
+         || null,
     }));
   }
 
   function fuzzyMatch(torvikName, bracketName) {
     if (!torvikName || !bracketName) return false;
+
     const normalize = s => s.toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
       .replace(/\s+/g, ' ')
@@ -134,68 +138,102 @@ export default function DataSetup({ onReady, existingTeams }) {
 
     const a = normalize(torvikName);
     const b = normalize(bracketName);
+
+    // RULE 1: Exact match always wins
     if (a === b) return true;
 
-    // Handle common Torvik vs bracket name divergences
-    const aliases = {
-      'miami fl':        ['miami fla', 'miami florida', 'miami fl'],
-      'miami oh':        ['miami ohio', 'miami  oh', 'miami oh'],
-      'st johns':        ["st john's", 'saint johns', "st. john's"],
-      'saint marys':     ["saint mary's", "st. mary's", "saint mary s"],
-      'uconn':           ['connecticut'],
-      'vcu':             ['vcu rams'],
-      'byu':             ['brigham young'],
-      'north carolina':  ['unc', 'n carolina'],
-      'nc state':        ['north carolina state', 'nc st', 'n c state', 'n c  state'],
-      'lsu':             ['louisiana state'],
-      'ole miss':        ['mississippi'],
-      'pitt':            ['pittsburgh'],
-      'umbc':            ['umbc retrievers'],
-      'north dakota st': ['north dakota state', 'ndsu', 'n dakota st', 'n  dakota st'],
-      'prairie view':    ['prairie view a m', 'prairie view am', 'prairie view a&m'],
-      'hawaii':          ["hawai'i", 'hawai i', 'hawaii'],
-      'kennesaw':        ['kennesaw st', 'kennesaw state'],
-      'high point':      ['high point panthers'],
-      'queens':          ['queens nc', 'queens university'],
-      'liu':             ['long island', 'liu brooklyn'],
-      'howard':          ['howard university', 'howard bison'],
-      'saint louis':     ['saint louis university', 'slu'],
-      'northern iowa':   ['n iowa', 'uni panthers'],
-      'wright st':       ['wright state', 'wright st '],
-      'tennessee st':    ['tennessee state', 'tenn state', 'tenn st'],
-      'iowa st':         ['iowa state', 'isu cyclones'],
-      'ohio st':         ['ohio state', 'osu buckeyes'],
-      'michigan st':     ['michigan state', 'msu spartans'],
-      'kennesaw st':     ['kennesaw state'],
-      'utah st':         ['utah state'],
-      'texas tech':      ['texas tech red raiders'],
-      'texas a m':       ['texas a&m', 'texas am', 'tamu'],
+    // RULE 2: Explicit alias table for known naming differences
+    // Only match what is explicitly listed — no guessing
+    const EXACT_ALIASES = {
+      // Bracket name (normalized) -> Torvik name (normalized)
+      'connecticut':       'connecticut',       // UConn in bracket = Connecticut in Torvik
+      'miami fl':          'miami fl',
+      'miami oh':          'miami oh',
+      'st  john s':        'st  john s',
+      'saint mary s':      'saint mary s',
+      'northern iowa':     'northern iowa',     // UNI in bracket
+      'cal baptist':       'cal baptist',
+      'south florida':     'south florida',
+      'michigan st':       'michigan st',
+      'north dakota st':   'north dakota st',
+      'ohio st':           'ohio st',
+      'iowa st':           'iowa st',
+      'utah st':           'utah st',
+      'wright st':         'wright st',
+      'tennessee st':      'tennessee st',
+      'kennesaw st':       'kennesaw st',
+      'prairie view a m':  'prairie view a m',
+      'hawaii':            'hawaii',
+      'queens':            'queens',
+      'saint louis':       'saint louis',
+      'texas a m':         'texas a m',
+      'texas tech':        'texas tech',
+      'liu':               'liu',
+      'howard':            'howard',
+      'mcneese st':        'mcneese st',
     };
-
-    // Check both directions
-    for (const [key, vals] of Object.entries(aliases)) {
-      if ((a.includes(key) || vals.some(v => a.includes(v))) &&
-          (b.includes(key) || vals.some(v => b.includes(v)))) {
-        return true;
+    // If either name normalizes to an alias key, only match the exact alias target
+    for (const [key, target] of Object.entries(EXACT_ALIASES)) {
+      if (a === key || b === key) {
+        return a === target && b === target;
       }
     }
 
-    // Substring match — but NEVER allow if the difference is a meaningful disambiguator
-    // e.g. 'Tennessee' must NOT match 'Tennessee St' or 'Tennessee Tech'
-    // These suffixes make them completely different teams
-    const DISAMBIGUATORS = [' st', ' state', ' tech', ' martin', ' a&m', ' am',
-                             ' oh', ' fl', ' eastern', ' western', ' northern', ' southern',
-                             ' christian', ' central', ' fort'];
+    // RULE 3: Explicit NEVER-MATCH pairs — these are substrings of each other
+    // but are completely different teams
+    const NEVER = new Set([
+      'kansas|arkansas', 'arkansas|kansas',
+      'texas|texas a m', 'texas a m|texas',
+      'texas|texas tech', 'texas tech|texas',
+      'florida|south florida', 'south florida|florida',
+      'florida|north florida', 'florida|florida st',
+      'florida|florida atlantic', 'florida|florida gulf coast',
+      'florida|florida a m',
+      'michigan|michigan st', 'michigan st|michigan',
+      'michigan|eastern michigan', 'michigan|western michigan',
+      'michigan|central michigan',
+      'tennessee|tennessee st', 'tennessee st|tennessee',
+      'tennessee|tennessee tech', 'tennessee|middle tennessee',
+      'tennessee|east tennessee st', 'tennessee st|east tennessee st',
+      'iowa|iowa st', 'iowa st|iowa',
+      'illinois|illinois st', 'illinois|illinois chicago',
+      'illinois|southern illinois', 'illinois|eastern illinois',
+      'illinois|northern illinois', 'illinois|western illinois',
+      'virginia|virginia tech', 'virginia|west virginia',
+      'kentucky|western kentucky', 'kentucky|eastern kentucky',
+      'kentucky|northern kentucky',
+      'georgia|georgia tech', 'georgia|georgia southern', 'georgia|georgia st',
+      'alabama|south alabama', 'alabama|alabama st', 'alabama|north alabama',
+      'alabama|alabama a m',
+      'houston|sam houston st', 'houston|houston christian',
+      'north carolina|north carolina a t', 'north carolina|north carolina central',
+      'nebraska|nebraska omaha',
+      'purdue|purdue fort wayne',
+      'connecticut|central connecticut',
+      'missouri|missouri st', 'missouri|southeast missouri st',
+      'idaho|idaho st',
+      'kansas|kansas st', 'kansas st|kansas',
+      'kansas|arkansas', 'arkansas|kansas',
+      'utah|utah st', 'utah st|utah',
+      'arkansas|arkansas st', 'arkansas st|arkansas',
+      'arkansas|arkansas pine bluff',
+    ]);
+    if (NEVER.has(a + '|' + b) || NEVER.has(b + '|' + a)) return false;
+
+    // RULE 4: Substring match only for short unambiguous names
+    // Both names must be at least 6 chars and difference must be trivial
+    const DISAMBIGUATORS = [' st', ' state', ' tech', ' martin', ' a m',
+                            ' oh', ' fl', ' eastern', ' western', ' northern',
+                            ' southern', ' christian', ' central', ' fort',
+                            ' pine', ' corpus', ' san'];
     const substringOk = (shorter, longer) => {
-      if (!longer.includes(shorter)) return false;
-      const remainder = longer.replace(shorter, '').trim();
-      // If the remainder is a disambiguator suffix, it's a DIFFERENT team
-      if (DISAMBIGUATORS.some(d => remainder === d.trim() || remainder.startsWith(d.trim()))) return false;
-      return true;
+      if (shorter.length < 6 || !longer.includes(shorter)) return false;
+      const remainder = longer.slice(longer.indexOf(shorter) + shorter.length).trim();
+      if (remainder === '') return true;
+      return !DISAMBIGUATORS.some(d => remainder === d.trim() || remainder.startsWith(d.trim()));
     };
 
-    if (a.length >= 5 && substringOk(a, b)) return true;
-    if (b.length >= 5 && substringOk(b, a)) return true;
+    if (substringOk(a, b) || substringOk(b, a)) return true;
 
     return false;
   }
