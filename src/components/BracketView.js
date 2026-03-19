@@ -12,6 +12,8 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
   const [sortBy, setSortBy] = useState('champ');
   const [filterRegion, setFilterRegion] = useState('All');
   const [viewMode, setViewMode] = useState('table'); // table | bracket
+  const [overrides, setOverrides] = useState({}); // teamName -> elo adjustment (-100 to +100)
+  const [showOverrides, setShowOverrides] = useState(false);
   const workerRef = useRef(null);
 
   const runSim = useCallback(() => {
@@ -30,10 +32,13 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
     for (const entry of teams) {
       if (!entry.team || !entry.region) continue;
       if (regions[entry.region] !== undefined) {
+        // Apply manual override: adjust as extra Elo points stored on team
+        const overrideElo = overrides[entry.team.team] || 0;
         regions[entry.region].push({
           ...entry.team,
           seed: entry.seed,
           region: entry.region,
+          _overrideElo: overrideElo,
         });
       }
       teamStats[entry.team.team] = {
@@ -176,12 +181,60 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
       return b.seed === lo ? [0, c] : [0, -c];
     }
 
+    // ── Experience / Veteran bonus ────────────────────────────────────────
+    // Teams with proven veteran cores outperform efficiency ratings in March.
+    // Silver's expert-rating component captures this implicitly; we hardcode
+    // the most clear-cut cases. Each unit = ~1 Elo point.
+    // Positive = bonus, Negative = penalty (young/inexperienced roster)
+    const EXPERIENCE_ADJ = {
+      'Connecticut':   +12,  // Dan Hurley system, experienced returners, 2x champs
+      'Duke':          +10,  // Scheyer system + Cameron Boozer — proven program
+      'Gonzaga':       +10,  // Mark Few, deep tournament pedigree every year
+      'Michigan St':   +10,  // Tom Izzo — statistically outperforms Elo every March
+      'Houston':        +8,  // Kelvin Sampson — Elite Eight culture built in
+      'Florida':        +8,  // Defending champs, returning veterans
+      'Arizona':        +6,  // Tommy Lloyd system, experienced
+      'Michigan':       +6,  // Dusty May — first big run but veteran roster
+      'Virginia':       +4,  // Tony Bennett system advantage (but slow = limited upside)
+      'Iowa St':        -8,  // Sloppy play observed, T.J. Otzelberger no Final Four
+      'Santa Clara':    -6,  // WCC, limited big-game experience
+      'Akron':          -4,  // MAC — first big tournament test for most players
+      'Northern Iowa':  -4,  // MVC — same
+      'Howard':         -4,  // MEAC — historic moment but outmatched
+      'Prairie View A&M': -4,
+      'Siena':          -4,
+      'LIU':            -4,
+      'Furman':         -4,
+      'Kennesaw St':    -4,
+      'Wright St':      -4,
+      'Tennessee St':   -4,
+    };
+
+    // ── Shooting-style variance multiplier ──────────────────────────────────
+    // 3-point-heavy offenses have wider outcome distributions — they can go
+    // ice cold or red hot. We proxy this from expected PPG:
+    // teams projecting 85+ pts/game get a variance boost (wider SD).
+    // This makes them more "boom or bust" — correctly models how upsets happen.
+    function shootingVariance(team) {
+      const expPPG = (team.adjO || 100) * (team.adjT || 68) / 100;
+      if (expPPG >= 90) return 1.18;   // very high scoring = 18% wider outcomes
+      if (expPPG >= 87) return 1.12;
+      if (expPPG >= 84) return 1.06;
+      if (expPPG <= 72) return 0.90;   // low scoring grind = tighter outcomes
+      if (expPPG <= 76) return 0.94;
+      return 1.0;
+    }
+
+    function expAdj(team) {
+      return EXPERIENCE_ADJ[team.team] || 0;
+    }
+
     function simGame(a, b, round) {
       const injA = injPenalty(a);
       const injB = injPenalty(b);
       const [corrA, corrB] = seedCorr(a, b, round);
-      const eloA = compositeElo(a) - injA * 28.5 + corrA;
-      const eloB = compositeElo(b) - injB * 28.5 + corrB;
+      const eloA = compositeElo(a) - injA * 28.5 + corrA + expAdj(a) + (a._overrideElo || 0);
+      const eloB = compositeElo(b) - injB * 28.5 + corrB + expAdj(b) + (b._overrideElo || 0);
 
       // 60/40 pace weighting toward slower team — slowdown teams impose their pace
       const slowT = Math.min(a.adjT || 68, b.adjT || 68);
@@ -193,7 +246,10 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
       const netB = (b.adjO - b.adjD) * pace;
       const projMargin = (netA - netB) / 2;
       const eloDiff = Math.abs(eloA - eloB);
-      const sd = (10 + (eloDiff / 400) * 3) * Math.sqrt(pace);
+
+      // Shooting-style variance: average the two teams' variance multipliers
+      const varMult = (shootingVariance(a) + shootingVariance(b)) / 2;
+      const sd = (10 + (eloDiff / 400) * 3) * Math.sqrt(pace) * varMult;
       const noise = tRand() * sd;
       const rawMargin = projMargin + noise;
 
@@ -271,7 +327,7 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
     }
 
     setTimeout(runChunk, 50);
-  }, [teams, simCount, onSimComplete]);
+  }, [teams, simCount, onSimComplete, overrides]);
 
   const regions = ['All', 'South', 'East', 'West', 'Midwest'];
   const sortOptions = [
@@ -317,6 +373,13 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
             </select>
           </div>
           <button
+            className={`btn-secondary ${showOverrides ? 'active' : ''}`}
+            onClick={() => setShowOverrides(s => !s)}
+            style={{ fontSize: '0.8rem' }}
+          >
+            ⚙ Eye-Test Overrides
+          </button>
+          <button
             className={`btn-primary ${running ? 'loading' : ''}`}
             onClick={runSim}
             disabled={running}
@@ -325,6 +388,10 @@ export default function BracketView({ teams, simResults, onSimComplete, onUpdate
           </button>
         </div>
       </div>
+
+      {showOverrides && (
+        <ManualOverrides teams={teams} overrides={overrides} onUpdate={setOverrides} />
+      )}
 
       {running && (
         <div className="progress-bar-wrap">
@@ -479,6 +546,109 @@ function UpsetWatch({ simResults, teams }) {
             <div className="upset-region">{u.region}</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Manual Eye-Test Overrides Panel ──────────────────────────────────────────
+// Lets you nudge any team's effective Elo before running sims.
+// Positive = you think the model underrates them.
+// Negative = you think the model overrates them (e.g. Iowa St sloppy play).
+// Scale: +50 Elo ≈ +1.5 pts projected margin, +100 ≈ +3 pts.
+function ManualOverrides({ teams, overrides, onUpdate }) {
+  const bracketTeams = teams
+    .filter(t => t.team)
+    .map(t => ({ name: t.team.team, seed: t.seed, region: t.region }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const setOverride = (name, val) => {
+    onUpdate(prev => ({ ...prev, [name]: val }));
+  };
+
+  const activeOverrides = Object.entries(overrides).filter(([, v]) => v !== 0);
+
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-lg)', padding: '20px 24px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>⚙ Eye-Test Overrides</h3>
+        {activeOverrides.length > 0 && (
+          <span style={{ fontSize: '0.75rem', color: 'var(--yellow)' }}>
+            {activeOverrides.length} active adjustment{activeOverrides.length > 1 ? 's' : ''}
+          </span>
+        )}
+        {activeOverrides.length > 0 && (
+          <button
+            onClick={() => onUpdate({})}
+            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '0.75rem', marginLeft: 'auto' }}
+          >Reset all</button>
+        )}
+      </div>
+      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+        Nudge any team's effective rating based on what you've seen. +50 ≈ +1.5 pts stronger, -50 ≈ +1.5 pts weaker.
+        Re-run sims after adjusting.
+      </p>
+
+      {/* Active overrides summary */}
+      {activeOverrides.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          {activeOverrides.map(([name, val]) => (
+            <div key={name} style={{
+              background: val > 0 ? 'rgba(52,208,122,0.1)' : 'rgba(248,113,113,0.1)',
+              border: `1px solid ${val > 0 ? 'var(--green)' : 'var(--red)'}`,
+              borderRadius: 6, padding: '3px 10px',
+              fontSize: '0.78rem', fontWeight: 600,
+              color: val > 0 ? 'var(--green)' : 'var(--red)',
+            }}>
+              {name}: {val > 0 ? '+' : ''}{val}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Team grid */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+        gap: 6, maxHeight: 320, overflowY: 'auto',
+      }}>
+        {bracketTeams.map(({ name, seed, region }) => {
+          const val = overrides[name] || 0;
+          const REGION_COLOR_MAP = {
+            East: 'var(--region-east)', West: 'var(--region-west)',
+            South: 'var(--region-south)', Midwest: 'var(--region-midwest)',
+          };
+          return (
+            <div key={name} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderLeft: `3px solid ${REGION_COLOR_MAP[region] || 'var(--accent)'}`,
+              borderRadius: 6, padding: '5px 10px',
+            }}>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: '0.65rem', color: 'var(--text-dim)', minWidth: 20 }}>
+                #{seed}
+              </span>
+              <span style={{ fontSize: '0.78rem', fontWeight: 600, flex: 1, color: 'var(--text)' }}>
+                {name}
+              </span>
+              <input
+                type="range" min="-150" max="150" step="10"
+                value={val}
+                onChange={e => setOverride(name, parseInt(e.target.value))}
+                style={{ width: 80, accentColor: val > 0 ? 'var(--green)' : val < 0 ? 'var(--red)' : 'var(--accent)' }}
+              />
+              <span style={{
+                fontFamily: 'var(--mono)', fontSize: '0.72rem', fontWeight: 700, minWidth: 32, textAlign: 'right',
+                color: val > 0 ? 'var(--green)' : val < 0 ? 'var(--red)' : 'var(--text-dim)',
+              }}>
+                {val > 0 ? '+' : ''}{val}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
